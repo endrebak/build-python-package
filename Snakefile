@@ -7,44 +7,13 @@ python_versions = config["linux_wheel_python_versions"]
 prefix = config["prefix"]
 version_number = config["version_number"]
 package = config["package"]
-requirements_host = config["requirements_host"]
-requirements_run = config["requirements_run"]
-
-bioconda_template = """
-package:
-  name: {package}
-  version: "{version_number}"
-
-source:
-  url: {url}
-  sha256: {sha256}
-
-build:
-  number: 0
-  skip:
-    True # [osx]
-
-requirements:
-  host:
-{requirement_host}
-
-  run:
-{requirements_run}
+requirements_host = config["bioconda_dependencies"]["host"]
+requirements_run = config["bioconda_dependencies"]["run"]
 
 
-test:
-  # Python imports
-  imports:
-    - {package}
+# commands:
+# - {test_command}
 
-commands:
-  - {test_command}
-
-about:
-  home: {homepage_url}
-  license: {license}
-  summary: '{description}'
-"""
 
 wildcard_constraints:
     package = package,
@@ -58,9 +27,13 @@ sdist = f"{prefix}/{package}_{version_number}_uploaded_sdist",
 
 create = [sdist]
 
+
 if config["linux_wheels"]:
     create.extend(linux_wheels)
 
+if config["bioconda"]:
+    bioconda_file = f"{prefix}/{package}-{version_number}/meta.yaml"
+    create.append(bioconda_file)
 
 
 rule all:
@@ -161,21 +134,72 @@ rule get_pypi_sdist_link:
         package, version_number = wildcards.package, wildcards.version_number
         link = [link for link in links if link.endswith(f"{package}-{version_number}.tar.gz")][0]
 
-        open(output[0], "w+").writeline(link)
+        open(output[0], "w+").write(link)
 
 
-rule get_bioconda_yaml:
+rule create_bioconda_yaml:
+    input:
+        sdist_link = "{prefix}/{package}_{version_number}_sdist_link.txt",
+        sha256 = "{prefix}/{package}-{version_number}_sha256.txt"
     output:
-        "{prefix}/{package}_{version_number}_bioconda.yaml"
+        "{prefix}/{package}-{version_number}/meta.yaml"
     run:
-        url = "https://raw.githubusercontent.com/bioconda/bioconda-recipes/master/recipes/{package}/meta.yaml".format(**wildcards)
+        url = open(input.sdist_link).readline().strip()
+        sha256 = open(input.sha256).readline().strip()
+        # to put in locals
+        reqs_run = "\n".join(["-" + r for r in requirements_run])
+        reqs_host = "\n".join(["-" + r for r in requirements_host])
+        # requirements_run = requirements_run
+        # requirements_host = requirements_host
+        locals().update(wildcards)
+        locals().update(config)
+        bioconda_template = """package:
+  name: {package}
+  version: "{version_number}"
 
-        import urllib.request
-        with urllib.request.urlopen(url) as response:
-            html = response.read()
+source:
+  url: {url}
+  sha256: {sha256}
 
-        import yaml
-        d = yaml.load(html)
+build:
+  number: 0
+  skip:
+    True # [osx]
+
+requirements:
+  host:
+    {reqs_host}
+
+  run:
+    {reqs_run}
+
+test:
+  # Python imports
+  imports:
+    - {package}
+
+about:
+home: {home}
+license: {license}
+summary: '{summary}'""".format(**locals())
+
+        print(bioconda_template)
+
+
+
+# rule get_bioconda_yaml:
+#     output:
+#         "{prefix}/{package}_{version_number}_bioconda.yaml"
+#     run:
+        # url = "https://raw.githubusercontent.com/bioconda/bioconda-recipes/master/recipes/{package}/meta.yaml".format(**wildcards)
+
+        # import urllib.request
+        # with urllib.request.urlopen(url) as response:
+        #     html = response.read()
+
+        # import yaml
+        # d = yaml.load(html)
+
 
 
 
